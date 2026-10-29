@@ -544,7 +544,14 @@ fn value_fields(ui: &mut Ui, p: &Picked, channel: Channel, hex_first: bool) -> (
                 } else {
                     let hex = hex_digits(&p.color);
                     if focus_hex {
-                        widgets::focus_field(ui, widgets::id_with(ui.scope_id(), "cp-hex"), &hex);
+                        // The field starts from the colour: a code typed into it and cancelled
+                        // (Escape closes the picker before the field is drawn again) is dropped.
+                        let id = widgets::id_with(ui.scope_id(), "cp-hex");
+                        ui.data_mut(|d| {
+                            d.remove_temp::<String>(id);
+                            d.remove_temp::<bool>(id.with("edited"));
+                        });
+                        widgets::focus_field(ui, id, &hex);
                     }
                     if let Some(c) = widgets::hex_field_named(ui, "cp-hex", Some(tl!("Color")), &hex).as_deref().and_then(parse_hex) {
                         edit = Some(Picked::of(c));
