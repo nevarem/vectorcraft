@@ -490,9 +490,13 @@ fn new_original_chips(ui: &mut Ui, new: &Color, original: &Color) -> bool {
 ///
 /// HSB, RGB and hex are in one grid, and Lab and CMYK are in a second grid beside it. Tab goes
 /// through the fields in the order they are drawn: H, S, B, R, G, B, hex, then L, a, b, C, M, Y,
-/// K, with a stop at each channel's radio button before its field.
+/// K, passing over the channel radios (a click picks one). The picker opens with the hex field's
+/// digits selected, so a hex code typed or pasted replaces the colour.
 fn value_fields(ui: &mut Ui, p: &Picked, channel: Channel) -> (Option<Picked>, Option<Channel>) {
     let t = Tokens::get(ui.ctx());
+    // The flag that gives a just-opened dialog's first field the keyboard (H here) goes to the hex
+    // field. A new window's first frame only measures it, and keeps the flag.
+    let focus_hex = !ui.is_sizing_pass() && ui.data_mut(|d| d.remove_temp::<bool>(widgets::dialog_focus_flag())).is_some();
     let rgb = p.color.to_rgb();
     let lab = p.color.to_lab();
     let cms = cms::active();
@@ -511,7 +515,7 @@ fn value_fields(ui: &mut Ui, p: &Picked, channel: Channel) -> (Option<Picked>, O
                     ui.end_row();
                 }
                 if let Some(&ch) = Channel::ALL.get(i) {
-                    if widgets::radio(ui, ch.label(), ch == channel, true) {
+                    if widgets::radio_untabbed(ui, ch.label(), ch == channel, true) {
                         chosen = Some(ch);
                     }
                     let (v, suffix) = match i {
@@ -534,10 +538,14 @@ fn value_fields(ui: &mut Ui, p: &Picked, channel: Channel) -> (Option<Picked>, O
                             }
                         });
                     }
-                } else if let Some(c) =
-                    widgets::hex_field_named(ui, "cp-hex", Some(tl!("Color")), &hex_digits(&p.color)).as_deref().and_then(parse_hex)
-                {
-                    edit = Some(Picked::of(c));
+                } else {
+                    let hex = hex_digits(&p.color);
+                    if focus_hex {
+                        widgets::focus_field(ui, widgets::id_with(ui.scope_id(), "cp-hex"), &hex);
+                    }
+                    if let Some(c) = widgets::hex_field_named(ui, "cp-hex", Some(tl!("Color")), &hex).as_deref().and_then(parse_hex) {
+                        edit = Some(Picked::of(c));
+                    }
                 }
                 ui.end_row();
             }
