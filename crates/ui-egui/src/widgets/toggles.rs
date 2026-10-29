@@ -3,15 +3,10 @@ use super::{Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, To
 /// The row of a checkbox or radio button: allocates a 13 pt box plus `text` (already translated),
 /// draws the text and returns the box, the response and the box's border colour.
 fn choice_row(ui: &mut Ui, text: &str, enabled: bool) -> (Rect, Response, Color32) {
-    choice_row_sensing(ui, text, if enabled { Sense::click() } else { Sense::hover() }, enabled)
-}
-
-/// [`choice_row`] that senses `sense` while enabled.
-fn choice_row_sensing(ui: &mut Ui, text: &str, sense: Sense, enabled: bool) -> (Rect, Response, Color32) {
     let t = Tokens::get(ui.ctx());
     let galley = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(12.5), if enabled { t.text } else { t.text_disabled });
-    let sense = if enabled { sense } else { Sense::hover() };
-    let (rect, resp) = ui.allocate_exact_size(vec2(18.0 + galley.size().x, 20.0f32.max(galley.size().y)), sense);
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(18.0 + galley.size().x, 20.0f32.max(galley.size().y)), if enabled { Sense::click() } else { Sense::hover() });
     let bx = Rect::from_min_size(pos2(rect.left(), rect.center().y - 6.5), Vec2::splat(13.0));
     ui.painter().galley(pos2(bx.right() + 5.0, rect.center().y - galley.size().y / 2.0), galley, t.text);
     let border = if !enabled {
@@ -96,21 +91,10 @@ pub fn radio_button(ui: &mut Ui, name: &str, selected: bool, enabled: bool) -> b
     radio_row(ui, "", name, selected, enabled)
 }
 
-/// [`radio`] that Tab passes over: a click picks it, and Tab goes from the field before it
-/// straight to the field after it (the Color Picker's channel radios, each beside its field).
-pub fn radio_untabbed(ui: &mut Ui, label: &str, selected: bool, enabled: bool) -> bool {
-    radio_row_sensing(ui, tl!(label), tl!(label), selected, enabled, Sense::CLICK)
-}
-
 /// [`radio`] with its `text` already translated, which screen readers call `name`.
 fn radio_row(ui: &mut Ui, text: &str, name: &str, selected: bool, enabled: bool) -> bool {
-    radio_row_sensing(ui, text, name, selected, enabled, Sense::click())
-}
-
-/// [`radio_row`] that senses `sense` while enabled.
-fn radio_row_sensing(ui: &mut Ui, text: &str, name: &str, selected: bool, enabled: bool, sense: Sense) -> bool {
     let t = Tokens::get(ui.ctx());
-    let (bx, resp, border) = choice_row_sensing(ui, text, sense, enabled);
+    let (bx, resp, border) = choice_row(ui, text, enabled);
     let c = bx.center();
     ui.painter().circle(c, 6.0, if selected && enabled { t.accent_strong } else { t.input }, Stroke::new(1.0, border));
     if selected {

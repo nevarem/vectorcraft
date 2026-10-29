@@ -300,9 +300,8 @@ fn ok_makes_the_picked_color_the_color_guides_base() {
 }
 
 /// #1692: Tab goes through one color model's fields before the next: H, S, B, then R, G, B, the
-/// hex field, then L, a, b, then C, M, Y, K, one Tab from each field to the next (it passes over
-/// the channel radios). Each Lab or CMYK field is level with the field on its left. The picker
-/// opens with the keyboard in the hex field.
+/// hex field, then L, a, b, then C, M, Y, K. Each Lab or CMYK field is level with the field on
+/// its left.
 #[test]
 fn tab_goes_through_one_color_models_fields_before_the_next() {
     let mut app = app();
@@ -310,31 +309,65 @@ fn tab_goes_through_one_color_models_fields_before_the_next() {
     let ctx = egui::Context::default();
     crate::theme::install_fonts(&ctx);
     let tab = egui::Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+    // The picker opens with the keyboard in H. The loop presses Tab until K has the keyboard
+    // and records each stop. A stop is `None` when no text field has the keyboard, as at a
+    // channel's radio button.
     let mut texts = vec![];
     for _ in 0..3 {
         texts = frame_in(&ctx, &mut app, vec![]);
     }
-    assert_eq!(focused_field(&ctx, &texts).map(|(label, _)| label), Some("#".to_string()), "the picker opens in the hex field");
-    // Click H's field, then press Tab until K has the keyboard, recording each stop (`None` when
-    // no text field has the keyboard).
-    let h = texts.iter().find(|(t, _)| t == "H").unwrap().1;
-    let at = egui::pos2(h.right() + 30.0, h.center().y);
-    let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
-    frame_in(&ctx, &mut app, vec![egui::Event::PointerMoved(at), button(true)]);
-    frame_in(&ctx, &mut app, vec![button(false)]);
-    texts = frame_in(&ctx, &mut app, vec![]);
     let mut stops = vec![focused_field(&ctx, &texts)];
     while stops.len() < 40 && stops.last().and_then(|s| s.as_ref()).is_none_or(|(label, _)| label != "K") {
         texts = frame_in(&ctx, &mut app, vec![tab.clone()]);
         stops.push(focused_field(&ctx, &texts));
     }
     let names: Vec<Option<&str>> = stops.iter().map(|s| s.as_ref().map(|(label, _)| label.as_str())).collect();
-    let fields: Vec<Option<&str>> = ["H", "S", "B", "R", "G", "B", "#", "L", "a", "b", "C", "M", "Y", "K"].into_iter().map(Some).collect();
-    assert_eq!(names, fields, "one Tab from each field to the next");
+    let fields: Vec<&str> = names.iter().flatten().copied().collect();
+    assert_eq!(fields, ["H", "S", "B", "R", "G", "B", "#", "L", "a", "b", "C", "M", "Y", "K"], "{names:?}");
+    assert_eq!(names[names.len() - 2..], [Some("Y"), Some("K")], "one Tab takes Y to K");
     let found: Vec<&(String, Rect)> = stops.iter().flatten().collect();
     for (left, right) in found[..7].iter().zip(&found[7..]) {
         // Two grids: their rows land on the same subpixel-rounded line, not necessarily bit-equal.
         assert!((left.1.center().y - right.1.center().y).abs() <= 0.5, "{} and {} are level", left.0, right.0);
+    }
+}
+
+/// General › Color Picker › Select When Opened: by default the picker opens with the keyboard in
+/// H; set to the hex code, it opens with the hex field's digits selected, so a code typed over
+/// them and Enter apply it. Tab still goes on from # to L.
+#[test]
+fn the_picker_opens_in_the_field_the_preference_names() {
+    let tab = egui::Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+    let app_with_hex_first = || {
+        let mut app = app();
+        app.run("prefs.set", json!({"key": "colorPickerFocus", "value": "hex"})).unwrap();
+        app
+    };
+    for (focus, opens_in) in [(None, "H"), (Some("hex"), "#"), (Some("hue"), "H")] {
+        let mut app = app();
+        if let Some(v) = focus {
+            app.run("prefs.set", json!({"key": "colorPickerFocus", "value": v})).unwrap();
+        }
+        app.run("ui.colorPicker", json!({"color": "#ff0000"})).unwrap();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut texts = vec![];
+        for _ in 0..3 {
+            texts = frame_in(&ctx, &mut app, vec![]);
+        }
+        assert_eq!(focused_field(&ctx, &texts).map(|(label, _)| label).as_deref(), Some(opens_in), "{focus:?}");
+        if opens_in == "#" {
+            let after = frame_in(&ctx, &mut app, vec![tab.clone()]);
+            assert_eq!(focused_field(&ctx, &after).map(|(label, _)| label).as_deref(), Some("L"), "Tab goes on from #");
+            // A code typed over the selected digits, then Enter.
+            let (ctx, mut app) = (context(), app_with_hex_first());
+            app.run("ui.colorPicker", json!({"color": "#ff0000"})).unwrap();
+            settled(&ctx, &mut app, screen());
+            draw(&ctx, &mut app, screen(), vec![egui::Event::Text("00FF00".into())]);
+            draw(&ctx, &mut app, screen(), vec![key(egui::Key::Enter)]);
+            assert!(app.ui.dialog.is_none());
+            assert_eq!(fill_hex(&app), "#00ff00");
+        }
     }
 }
 
@@ -622,8 +655,8 @@ fn inline_ok_commits_typed_input_and_cancel_restores_the_preview() {
         app.run("ui.colorPicker", json!({"color": "#ff0000"})).unwrap();
         let drawn = settled(&ctx, &mut app, screen());
         let undo = app.session.doc().unwrap().history.undo.len();
-        // The hex field has the keyboard with its digits selected: typing replaces them.
-        draw(&ctx, &mut app, screen(), vec![egui::Event::Text("00FF00".into())]);
+        // The first numeric field has selected text, just as in the other form dialogs.
+        draw(&ctx, &mut app, screen(), vec![egui::Event::Text("120".into())]);
         if enter {
             draw(&ctx, &mut app, screen(), vec![key(egui::Key::Enter)]);
         } else {
